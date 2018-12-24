@@ -13,10 +13,13 @@
          (ext wait?))                   ; ->exit->
 
 ;; A request is not a bare form to eval, though that's what this dummy
-;; code treats it is. Instead evaluation will be but one of several
+;; code treats it as. Instead, evaluation will be but one of several
 ;; request types. Completion, namespace manipulation, middleware
 ;; management should be handled through a let's say plist-based
-;; request structure.
+;; request structure. A piece of middleware will have two hooks: a
+;; request processing hook and a response processing hook, allowing
+;; middleware to decorate both incoming requests and outgoing
+;; responses.
 (def (process-request @source xid req)
   (try
    (let (res (eval req))
