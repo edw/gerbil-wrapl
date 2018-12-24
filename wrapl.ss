@@ -12,7 +12,11 @@
          (tim xid)                      ; timeout->
          (ext wait?))                   ; ->exit->
 
-
+;; A request is not a bare form to eval, though that's what this dummy
+;; code treats it is. Instead evaluation will be but one of several
+;; request types. Completion, namespace manipulation, middleware
+;; management should be handled through a let's say plist-based
+;; request structure.
 (def (process-request @source xid req)
   (try
    (let (res (eval req))
