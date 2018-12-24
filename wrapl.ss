@@ -1,6 +1,7 @@
 (import :std/actor
         :std/format
-        :std/sugar)
+        :std/sugar
+        :std/iter)
 
 (defproto wrapl
   id: wrapl
@@ -10,7 +11,8 @@
          (exception xid message irritants) ; exception->
          (response xid res)                ; response->
          (timeout xid)                     ; timeout->
-         (exit wait?))                     ; ->exit->
+         (exit wait?)                      ; ->exit
+         (will-exit))                      ; will-exit->
 
 ;; A request is not a bare form to eval, though that's what this dummy
 ;; code treats it as. Instead, evaluation will be but one of several
@@ -50,12 +52,12 @@
 (def (wrapl-server)
   (try
    (let lp ()
-     (<- ((!wrapl.ext wait?)
+     (<- ((!wrapl.exit wait?)
           (when wait? (thread-sleep! (max-request-seconds)))
-          (!!wrapl.ext @source wait?))
+          (!!wrapl.will-exit @source))
          ;; fall through and therefore exit
 
-         ((!wrapl.req xid req)
+         ((!wrapl.request xid req)
           (let* ((worker
                   (make-thread (cut process-request @source xid req)))
                  (monitor
@@ -68,3 +70,9 @@
      (eprintf "An internal exception occurred:\n ~S\n" e))))
 
 (def wrapl-service (spawn wrapl-server))
+
+(def handle-eval
+  (match <...>
+    ([xid ['request (? (hash-ref body 'type #f) => 'eval)]]
+     (eprintf "An eval request:\nxid: ~S\nbody: ~S\n" xid body))
+    ([xid event] (eprintf "Something else:\nxid: ~S\nevent: ~S\n" xid event))))
