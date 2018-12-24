@@ -1,55 +1,45 @@
 (import :std/actor
         :std/format
-        :std/sugar
-        :std/iter)
+        (except-in :std/sugar hash)
+        :thunknyc/hash
+        :thunknyc/sugar)
 
 (defproto wrapl
   id: wrapl
-  event: (request xid req)                 ; ->request
-         (cancel xid)                      ; ->cancel
-         (receipt xid)                     ; receipt->
-         (exception xid message irritants) ; exception->
-         (response xid res)                ; response->
-         (timeout xid)                     ; timeout->
-         (exit wait?)                      ; ->exit
-         (will-exit))                      ; will-exit->
+  event: (request req)                 ; ->request
+         (cancel id)                   ; ->cancel
+         (response res)                ; response->
+         (exit wait?)                  ; ->exit
+         (will-exit))                  ; will-exit->
 
-;; A request is not a bare form to eval, though that's what this dummy
-;; code treats it as. Instead, evaluation will be but one of several
-;; request types. Completion, namespace manipulation, middleware
-;; management should be handled through a let's say plist-based
-;; request structure. A piece of middleware will have two hooks: a
-;; request processing hook and a response processing hook, allowing
-;; middleware to decorate both incoming requests and outgoing
-;; responses.
-(def (process-request @source xid req)
+(def (process-request @source handler req)
   (try
-   (let (res (eval req))
-     (!!wrapl.response @source xid res))
+   (let (res (handler req))
+     (!!wrapl.response @source res))
    (catch (exc)
-     (!!wrapl.exception @source xid exc `(,req)))))
+     (!!wrapl.response @source (hash (type 'exception) (req req))))))
 
-(define max-request-seconds (make-parameter 10))
+(def max-request-seconds (make-parameter 10))
 
 (def (worker-finished? w)
   (let (s (thread-state w))
     (or (thread-state-abnormally-terminated? s)
         (thread-state-normally-terminated? s))))
 
-(def (monitor-process @source xid worker)
+(def (monitor-process @source req worker)
   (let (start-seconds (time->seconds (current-time)))
    (let lp ((now-seconds (time->seconds (current-time))))
      (cond ((worker-finished? worker)
-            (eprintf "Request ~S complete\n" xid))
+            (eprintf "Completed:\n~S\n" req))
            ((> (- now-seconds start-seconds) (max-request-seconds))
             (thread-terminate! worker)
-            (eprintf "Terminated ~S due to timeout\n" xid)
-            (!!wrapl.timeout @source xid))
+            (eprintf "Terminated due to timeout:\n~S\n" req)
+            (!!wrapl.response @source (hash (type 'timeout) (req req))))
            (else
             (thread-sleep! 0.5)
             (lp (time->seconds (current-time))))))))
 
-(def (wrapl-server)
+(def (wrapl-server handler)
   (try
    (let lp ()
      (<- ((!wrapl.exit wait?)
@@ -57,22 +47,35 @@
           (!!wrapl.will-exit @source))
          ;; fall through and therefore exit
 
-         ((!wrapl.request xid req)
+         ((!wrapl.request req)
           (let* ((worker
-                  (make-thread (cut process-request @source xid req)))
+                  (make-thread (cut process-request @source handler req)))
                  (monitor
-                  (make-thread (cut monitor-process @source xid worker))))
+                  (make-thread (cut monitor-process @source worker))))
             (thread-start! worker)
             (thread-start! monitor))
-          (!!wrapl.receipt @source xid)
+          (!!wrapl.response @source (hash (type 'received) (req req)))
           (lp))))
    (catch (e)
      (eprintf "An internal exception occurred:\n ~S\n" e))))
 
 (def wrapl-service (spawn wrapl-server))
 
-(def handle-eval
-  (match <...>
-    ([xid ['request (? (hash-ref body 'type #f) => 'eval)]]
-     (eprintf "An eval request:\nxid: ~S\nbody: ~S\n" xid body))
-    ([xid event] (eprintf "Something else:\nxid: ~S\nevent: ~S\n" xid event))))
+;; TODO: Send a event-not-processed response.
+(def root-handler
+  (lambda (req reply)
+    (reply (hash (type 'ignored) (req req)))))
+
+;; TODO: Turn all the pomp and circumstance into a HANDLER macro.
+(def wrap-eval-handler
+  (lambda (next)
+    (lambda (req reply)
+      (match req
+        ((hash (type 'eval) (body form))
+         (eprintf "An eval request:\n~S\n" form)
+         (reply (eval form)))
+        ((hash (type t))
+         (eprintf "Some other request of type ~S:\n~S\n" t req)
+         (next req reply))))))
+
+(def handler (wrap-eval-handler root-handler))

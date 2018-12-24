@@ -1,2 +1,2 @@
 (package: thunknyc)
-(depends: github.com/thunknyc/hash)
+(depends: github.com/thunknyc/gerbil-hash)
