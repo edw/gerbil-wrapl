@@ -4,13 +4,13 @@
 
 (defproto wrapl
   id: wrapl
-  event: (req xid req)                  ; ->request 
-         (cnl xid)                      ; ->cancel
-         (rct xid message)              ; receipt->
-         (exc xid message irritants)    ; exception->
-         (res xid res)                  ; result->
-         (tim xid)                      ; timeout->
-         (ext wait?))                   ; ->exit->
+  event: (request xid req)                 ; ->request
+         (cancel xid)                      ; ->cancel
+         (receipt xid)                     ; receipt->
+         (exception xid message irritants) ; exception->
+         (response xid res)                ; response->
+         (timeout xid)                     ; timeout->
+         (exit wait?))                     ; ->exit->
 
 ;; A request is not a bare form to eval, though that's what this dummy
 ;; code treats it as. Instead, evaluation will be but one of several
@@ -23,9 +23,9 @@
 (def (process-request @source xid req)
   (try
    (let (res (eval req))
-     (!!wrapl.res @source xid res))
+     (!!wrapl.response @source xid res))
    (catch (exc)
-     (!!wrapl.exc @source xid exc `(,req)))))
+     (!!wrapl.exception @source xid exc `(,req)))))
 
 (define max-request-seconds (make-parameter 10))
 
@@ -42,7 +42,7 @@
            ((> (- now-seconds start-seconds) (max-request-seconds))
             (thread-terminate! worker)
             (eprintf "Terminated ~S due to timeout\n" xid)
-            (!!wrapl.tim @source xid))
+            (!!wrapl.timeout @source xid))
            (else
             (thread-sleep! 0.5)
             (lp (time->seconds (current-time))))))))
@@ -62,7 +62,7 @@
                   (make-thread (cut monitor-process @source xid worker))))
             (thread-start! worker)
             (thread-start! monitor))
-          (!!wrapl.rct @source xid 'accepted)
+          (!!wrapl.receipt @source xid)
           (lp))))
    (catch (e)
      (eprintf "An internal exception occurred:\n ~S\n" e))))
