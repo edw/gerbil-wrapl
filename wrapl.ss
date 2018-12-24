@@ -9,7 +9,8 @@
          (rct xid message)              ; receipt->
          (exc xid message irritants)    ; exception->
          (res xid res)                  ; result->
-         (tim xid))                     ; timeout->
+         (tim xid)                      ; timeout->
+         (ext wait?))                   ; ->exit->
 
 
 (def (process-request @source xid req)
@@ -42,7 +43,12 @@
 (def (wrapl-server)
   (try
    (let lp ()
-     (<- ((!wrapl.req xid req)
+     (<- ((!wrapl.ext wait?)
+          (when wait? (thread-sleep! (max-request-seconds)))
+          (!!wrapl.ext @source wait?))
+         ;; fall through and therefore exit
+
+         ((!wrapl.req xid req)
           (let* ((worker
                   (make-thread (cut process-request @source xid req)))
                  (monitor
